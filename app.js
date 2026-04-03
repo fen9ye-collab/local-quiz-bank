@@ -36,6 +36,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
 function cacheRefs() {
   refs.pickDirectoryBtn = document.getElementById("pickDirectoryBtn");
+  refs.initPanel = document.getElementById("initPanel");
   refs.reloadBtn = document.getElementById("reloadBtn");
   refs.folderInput = document.getElementById("folderInput");
   refs.sourceLabel = document.getElementById("sourceLabel");
@@ -52,13 +53,20 @@ function cacheRefs() {
   refs.examContent = document.getElementById("examContent");
   refs.modeLabel = document.getElementById("modeLabel");
   refs.progressLabel = document.getElementById("progressLabel");
+  refs.jumpBtn = document.getElementById("jumpBtn");
   refs.questionTypeBadge = document.getElementById("questionTypeBadge");
   refs.questionMeta = document.getElementById("questionMeta");
   refs.questionBody = document.getElementById("questionBody");
-  refs.resultBox = document.getElementById("resultBox");
   refs.manualWrongBtn = document.getElementById("manualWrongBtn");
   refs.submitBtn = document.getElementById("submitBtn");
-  refs.nextBtn = document.getElementById("nextBtn");
+  refs.resultModal = document.getElementById("resultModal");
+  refs.resultModalBody = document.getElementById("resultModalBody");
+  refs.resultModalConfirmBtn = document.getElementById("resultModalConfirmBtn");
+  refs.jumpModal = document.getElementById("jumpModal");
+  refs.jumpHintText = document.getElementById("jumpHintText");
+  refs.jumpInput = document.getElementById("jumpInput");
+  refs.jumpCancelBtn = document.getElementById("jumpCancelBtn");
+  refs.jumpConfirmBtn = document.getElementById("jumpConfirmBtn");
 }
 
 function bindEvents() {
@@ -70,7 +78,10 @@ function bindEvents() {
   refs.clearWrongBtn.addEventListener("click", clearWrongBank);
   refs.manualWrongBtn.addEventListener("click", onManualAddWrong);
   refs.submitBtn.addEventListener("click", submitCurrentQuestion);
-  refs.nextBtn.addEventListener("click", moveNext);
+  refs.jumpBtn.addEventListener("click", openJumpModal);
+  refs.resultModalConfirmBtn.addEventListener("click", onResultModalConfirm);
+  refs.jumpCancelBtn.addEventListener("click", closeJumpModal);
+  refs.jumpConfirmBtn.addEventListener("click", confirmJump);
 }
 
 async function onPickDirectory() {
@@ -283,6 +294,7 @@ function buildEmptyBank(sourceLabel, errors) {
 
 function applyBankState() {
   refs.sourceLabel.textContent = state.bank.sourceLabel || "未加载题库";
+  refs.initPanel.classList.toggle("hidden", state.bank.errors.length === 0);
   updateBankStats();
   renderChapterList();
   renderIdleExam(
@@ -348,8 +360,9 @@ function renderIdleExam(message) {
   refs.examEmpty.textContent = message;
   refs.examEmpty.classList.remove("hidden");
   refs.examContent.classList.add("hidden");
-  refs.resultBox.classList.add("hidden");
-  refs.resultBox.innerHTML = "";
+  refs.jumpBtn.classList.add("hidden");
+  closeResultModal();
+  closeJumpModal();
   refs.questionBody.innerHTML = "";
   refs.questionMeta.innerHTML = "";
 }
@@ -360,10 +373,7 @@ function startSession(mode) {
     return;
   }
 
-  const queue =
-    mode === "wrong"
-      ? state.bank.items.filter((item) => state.wrongSet.has(item.id)).map((item) => item.id)
-      : state.bank.items.filter((item) => getSelectedChapters().has(item.chapter)).map((item) => item.id);
+  const queue = buildSessionQueue(mode);
 
   if (!queue.length) {
     setStatus(mode === "wrong" ? "当前错题库为空。" : "请至少勾选一个有题目的章节。");
@@ -377,25 +387,51 @@ function startSession(mode) {
     correctCount: 0,
     submitted: false,
     result: null,
+    sharedStemResults: {},
   };
 
   renderCurrentQuestion();
 }
 
+function buildSessionQueue(mode) {
+  const items =
+    mode === "wrong"
+      ? state.bank.items.filter((item) => state.wrongSet.has(item.uid))
+      : state.bank.items.filter((item) => getSelectedChapters().has(item.chapter));
+
+  return items.flatMap((item) => {
+    if (item.kind === "group" && item.groupType === "sharedStem") {
+      return item.questions.map((question) => ({
+        itemUid: item.uid,
+        questionUid: question.uid,
+      }));
+    }
+
+    return [
+      {
+        itemUid: item.uid,
+        questionUid: null,
+      },
+    ];
+  });
+}
+
 function renderCurrentQuestion() {
+  const entry = getCurrentEntry();
   const item = getCurrentItem();
   if (!item) {
     renderSessionSummary();
     return;
   }
+  const sharedQuestion = getCurrentSharedQuestion();
 
   refs.examEmpty.classList.add("hidden");
   refs.examContent.classList.remove("hidden");
-  refs.resultBox.classList.add("hidden");
-  refs.resultBox.innerHTML = "";
+  closeResultModal();
 
   refs.modeLabel.textContent = state.session.mode === "wrong" ? "错题库练习" : "章节练习";
   refs.progressLabel.textContent = `第 ${state.session.index + 1} / ${state.session.queue.length} 题`;
+  refs.jumpBtn.classList.toggle("hidden", state.session.mode !== "chapter");
   refs.questionTypeBadge.textContent = getQuestionTypeLabel(item);
 
   refs.questionMeta.innerHTML = "";
@@ -407,14 +443,21 @@ function renderCurrentQuestion() {
   }
 
   refs.questionBody.innerHTML = "";
-  refs.questionBody.appendChild(item.kind === "group" ? renderGroupItem(item) : renderSingleItem(item, { parentId: item.id }));
+  if (item.kind === "group" && item.groupType === "sharedStem" && entry?.questionUid && sharedQuestion) {
+    refs.questionBody.appendChild(renderSharedStemItem(item, sharedQuestion));
+  } else {
+    refs.questionBody.appendChild(
+      item.kind === "group"
+        ? renderGroupItem(item)
+        : renderSingleItem(item, { parentId: item.uid, subId: item.uid })
+    );
+  }
 
   refs.manualWrongBtn.classList.remove("hidden");
   refs.submitBtn.classList.remove("hidden");
-  refs.nextBtn.classList.add("hidden");
   refs.submitBtn.disabled = false;
-  refs.manualWrongBtn.disabled = state.wrongSet.has(item.id);
-  refs.manualWrongBtn.textContent = state.wrongSet.has(item.id) ? "已在错题库" : "加入错题库";
+  refs.manualWrongBtn.disabled = state.wrongSet.has(item.uid);
+  refs.manualWrongBtn.textContent = state.wrongSet.has(item.uid) ? "已在错题库" : "加入错题库";
 }
 
 function appendMetaItem(text) {
@@ -435,7 +478,11 @@ function renderSingleItem(item, context) {
 
   const optionList = document.createElement("div");
   optionList.className = "option-list";
-  item.options.forEach((option) => optionList.appendChild(renderOption(item, option, context)));
+  const nextContext = {
+    parentId: context?.parentId || item.uid,
+    subId: context?.subId || item.uid,
+  };
+  item.options.forEach((option) => optionList.appendChild(renderOption(item, option, nextContext)));
   card.appendChild(optionList);
   return card;
 }
@@ -466,7 +513,7 @@ function renderGroupItem(item) {
     const optionList = document.createElement("div");
     optionList.className = "option-list";
     question.options.forEach((option) => {
-      optionList.appendChild(renderOption(question, option, { parentId: item.id, subId: question.id }));
+      optionList.appendChild(renderOption(question, option, { parentId: item.uid, subId: question.uid }));
     });
 
     sub.appendChild(optionList);
@@ -477,11 +524,41 @@ function renderGroupItem(item) {
   return card;
 }
 
+function renderSharedStemItem(item, question) {
+  const card = document.createElement("article");
+  card.className = "group-card";
+
+  if (item.stem) {
+    const title = document.createElement("h3");
+    title.className = "group-card__title";
+    title.textContent = item.stem;
+    card.appendChild(title);
+  }
+
+  const sub = document.createElement("section");
+  sub.className = "sub-question";
+
+  const subTitle = document.createElement("h4");
+  subTitle.className = "sub-question__title";
+  subTitle.textContent = question.prompt;
+  sub.appendChild(subTitle);
+
+  const optionList = document.createElement("div");
+  optionList.className = "option-list";
+  question.options.forEach((option) => {
+    optionList.appendChild(renderOption(question, option, { parentId: item.uid, subId: question.uid }));
+  });
+
+  sub.appendChild(optionList);
+  card.appendChild(sub);
+  return card;
+}
+
 function renderOption(question, option, context) {
   const wrapper = document.createElement("div");
   wrapper.className = "option-card";
   wrapper.dataset.optionKey = option.key;
-  wrapper.dataset.questionId = question.id;
+  wrapper.dataset.questionId = question.uid || question.id;
 
   const label = document.createElement("label");
   const input = document.createElement("input");
@@ -507,38 +584,53 @@ function onManualAddWrong() {
     return;
   }
 
-  addWrong(item.id);
+  addWrong(item.uid);
   setStatus("已手动加入错题库，已跳转下一题。");
   moveNext();
 }
 
 function submitCurrentQuestion() {
+  const entry = getCurrentEntry();
   const item = getCurrentItem();
   if (!item || state.session.submitted) {
     return;
   }
 
-  const result = item.kind === "group" ? evaluateGroup(item) : evaluateSingle(item);
+  const result =
+    item.kind === "group" && item.groupType === "sharedStem"
+      ? evaluateSharedStemStep(item, getCurrentSharedQuestion())
+      : item.kind === "group"
+        ? evaluateGroup(item)
+        : evaluateSingle(item);
   state.session.submitted = true;
   state.session.result = result;
 
-  if (result.correct) {
+  if (item.kind === "group" && item.groupType === "sharedStem") {
+    updateSharedStemWrongState(entry, result.correct);
+    if (state.session.mode === "wrong" && isLastSharedStemStepForGroup(entry.itemUid)) {
+      finalizeSharedStemWrongState(entry.itemUid);
+    }
+  } else if (result.correct) {
     state.session.correctCount += 1;
     if (state.session.mode === "wrong") {
-      removeWrong(item.id);
+      removeWrong(item.uid);
     }
   } else {
-    addWrong(item.id);
+    addWrong(item.uid);
+  }
+
+  if (result.correct) {
+    moveNext();
+    return;
   }
 
   paintResult(item, result);
   refs.submitBtn.classList.add("hidden");
-  refs.nextBtn.classList.remove("hidden");
   refs.manualWrongBtn.disabled = true;
 }
 
 function evaluateSingle(item) {
-  const submitted = readSelectedAnswers(item.id);
+  const submitted = readSelectedAnswers(item.uid);
   const correct = sameAnswers(submitted, item.answerSet);
   return {
     correct,
@@ -558,20 +650,40 @@ function evaluateSingle(item) {
 
 function evaluateGroup(item) {
   const detail = item.questions.map((question) => {
-    const submitted = readSelectedAnswers(item.id, question.id);
+    const submitted = readSelectedAnswers(item.uid, question.uid);
     return {
       prompt: question.prompt,
       correct: sameAnswers(submitted, question.answerSet),
       submitted,
       answerSet: question.answerSet,
       analysis: question.analysis,
-      questionId: question.id,
+      questionId: question.uid,
     };
   });
 
   return {
     correct: detail.every((entry) => entry.correct),
     detail,
+  };
+}
+
+function evaluateSharedStemStep(item, question) {
+  const submitted = readSelectedAnswers(item.uid, question.uid);
+  const correct = sameAnswers(submitted, question.answerSet);
+  return {
+    correct,
+    submitted,
+    answerSet: question.answerSet,
+    detail: [
+      {
+        prompt: question.prompt,
+        correct,
+        submitted,
+        answerSet: question.answerSet,
+        analysis: question.analysis,
+        questionId: question.uid,
+      },
+    ],
   };
 }
 
@@ -610,19 +722,14 @@ function paintResult(item, result) {
     });
   }
 
-  refs.resultBox.className = `result-box ${result.correct ? "result-box--correct" : "result-box--wrong"}`;
-  refs.resultBox.classList.remove("hidden");
-  refs.resultBox.innerHTML = "";
-
-  const title = document.createElement("h3");
-  title.textContent = result.correct ? "回答正确" : "回答有误，已加入错题库";
-  refs.resultBox.appendChild(title);
+  refs.resultModalBody.className = `modal__body ${result.correct ? "modal__body--correct" : "modal__body--wrong"}`;
+  refs.resultModalBody.innerHTML = "";
 
   result.detail.forEach((entry, index) => {
     const p = document.createElement("p");
     const prefix = item.kind === "group" ? `第 ${index + 1} 问` : "正确答案";
     p.textContent = `${prefix}：${Array.from(entry.answerSet).join("、")} | 你的答案：${Array.from(entry.submitted).join("、") || "未作答"}`;
-    refs.resultBox.appendChild(p);
+    refs.resultModalBody.appendChild(p);
   });
 
   if (!result.correct) {
@@ -632,15 +739,18 @@ function paintResult(item, result) {
       }
       const p = document.createElement("p");
       p.textContent = `${item.kind === "group" ? `第 ${index + 1} 问解析` : "解析"}：${entry.analysis}`;
-      refs.resultBox.appendChild(p);
+      refs.resultModalBody.appendChild(p);
     });
   }
 
   if (result.correct && state.session.mode === "wrong") {
     const p = document.createElement("p");
     p.textContent = "这道错题已从错题库释放。";
-    refs.resultBox.appendChild(p);
+    refs.resultModalBody.appendChild(p);
   }
+
+  refs.resultModalConfirmBtn.textContent = hasNextQuestion() ? "确认并进入下一题" : "确认并查看结果";
+  refs.resultModal.classList.remove("hidden");
 }
 
 function moveNext() {
@@ -648,7 +758,59 @@ function moveNext() {
     return;
   }
 
+  closeResultModal();
   state.session.index += 1;
+  state.session.submitted = false;
+  state.session.result = null;
+  renderCurrentQuestion();
+}
+
+function hasNextQuestion() {
+  return Boolean(state.session) && state.session.index < state.session.queue.length - 1;
+}
+
+function onResultModalConfirm() {
+  closeResultModal();
+  moveNext();
+}
+
+function closeResultModal() {
+  refs.resultModal.classList.add("hidden");
+  refs.resultModalBody.innerHTML = "";
+}
+
+function openJumpModal() {
+  if (!state.session || state.session.mode !== "chapter") {
+    return;
+  }
+  refs.jumpHintText.textContent = `请输入 1 到 ${state.session.queue.length} 之间的题号顺序。`;
+  refs.jumpInput.min = "1";
+  refs.jumpInput.max = String(state.session.queue.length);
+  refs.jumpInput.value = String(state.session.index + 1);
+  refs.jumpModal.classList.remove("hidden");
+  refs.jumpInput.focus();
+  refs.jumpInput.select();
+}
+
+function closeJumpModal() {
+  refs.jumpModal.classList.add("hidden");
+}
+
+function confirmJump() {
+  if (!state.session || state.session.mode !== "chapter") {
+    closeJumpModal();
+    return;
+  }
+
+  const target = Number.parseInt(refs.jumpInput.value, 10);
+  if (!Number.isInteger(target) || target < 1 || target > state.session.queue.length) {
+    setStatus(`请输入 1 到 ${state.session.queue.length} 之间的题号。`);
+    return;
+  }
+
+  closeJumpModal();
+  closeResultModal();
+  state.session.index = target - 1;
   state.session.submitted = false;
   state.session.result = null;
   renderCurrentQuestion();
@@ -672,11 +834,50 @@ function renderSessionSummary() {
   refs.modeLabel.textContent = state.session.mode === "wrong" ? "错题库练习" : "章节练习";
   refs.progressLabel.textContent = "练习结束";
   refs.questionTypeBadge.textContent = "完成";
-  refs.resultBox.classList.add("hidden");
+  closeResultModal();
   refs.submitBtn.classList.add("hidden");
   refs.manualWrongBtn.classList.add("hidden");
-  refs.nextBtn.classList.add("hidden");
   state.session = null;
+}
+
+function updateSharedStemWrongState(entry, correct) {
+  const current = state.session.sharedStemResults[entry.itemUid] || {
+    correctCount: 0,
+    total: state.session.queue.filter((queueEntry) => queueEntry.itemUid === entry.itemUid).length,
+    anyWrong: false,
+  };
+
+  if (correct) {
+    current.correctCount += 1;
+    state.session.correctCount += 1;
+  }
+  current.anyWrong = current.anyWrong || !correct;
+  state.session.sharedStemResults[entry.itemUid] = current;
+
+  if (!correct) {
+    addWrong(entry.itemUid);
+  }
+}
+
+function isLastSharedStemStepForGroup(itemUid) {
+  if (!state.session) {
+    return false;
+  }
+  const remaining = state.session.queue.slice(state.session.index + 1).some((entry) => entry.itemUid === itemUid);
+  return !remaining;
+}
+
+function finalizeSharedStemWrongState(itemUid) {
+  const result = state.session.sharedStemResults[itemUid];
+  if (!result) {
+    return;
+  }
+
+  if (!result.anyWrong && result.correctCount === result.total) {
+    removeWrong(itemUid);
+  } else if (result.anyWrong) {
+    addWrong(itemUid);
+  }
 }
 
 function clearWrongBank() {
@@ -690,6 +891,13 @@ function clearWrongBank() {
   setStatus("当前题库错题已清空。");
 }
 
+function getCurrentEntry() {
+  if (!state.session) {
+    return null;
+  }
+  return state.session.queue[state.session.index] || null;
+}
+
 function readSelectedAnswers(parentId, subId) {
   const name = `${parentId}__${subId || parentId}`;
   const selected = Array.from(document.querySelectorAll(`input[name="${cssEscape(name)}"]:checked`)).map((node) =>
@@ -699,11 +907,20 @@ function readSelectedAnswers(parentId, subId) {
 }
 
 function getCurrentItem() {
-  if (!state.session) {
+  const entry = getCurrentEntry();
+  if (!entry) {
     return null;
   }
-  const id = state.session.queue[state.session.index];
-  return state.bank.items.find((item) => item.id === id) || null;
+  return state.bank.items.find((item) => item.uid === entry.itemUid) || null;
+}
+
+function getCurrentSharedQuestion() {
+  const entry = getCurrentEntry();
+  const item = getCurrentItem();
+  if (!entry || !item || !entry.questionUid || !Array.isArray(item.questions)) {
+    return null;
+  }
+  return item.questions.find((question) => question.uid === entry.questionUid) || null;
 }
 
 function getSelectedChapters() {
@@ -735,8 +952,22 @@ function loadWrongSet(bankId, items) {
   try {
     const raw = localStorage.getItem(`${STORAGE_PREFIX}:wrong:${bankId}`);
     const ids = JSON.parse(raw || "[]");
-    const validIds = new Set(items.map((item) => item.id));
-    return new Set(ids.filter((id) => validIds.has(id)));
+    const validIds = new Set(items.map((item) => item.uid));
+    const normalized = new Set();
+
+    ids.forEach((id) => {
+      if (validIds.has(id)) {
+        normalized.add(id);
+        return;
+      }
+
+      const matchedItems = items.filter((item) => item.id === id);
+      if (matchedItems.length === 1) {
+        normalized.add(matchedItems[0].uid);
+      }
+    });
+
+    return normalized;
   } catch (_error) {
     return new Set();
   }
@@ -781,16 +1012,20 @@ function normalizeTopLevelItem(raw, chapter, seed, relativePath) {
   }
 
   const id = String(raw.id || seed);
+  const uid = `${relativePath}::${id}`;
   const displayNo = pickText(raw.no, raw.index, seed.split("#").pop());
   const common = {
     id,
+    uid,
     chapter: pickText(raw.chapter, chapter),
     displayNo,
     sourcePath: relativePath,
   };
 
   if (Array.isArray(raw.questions)) {
-    const questions = raw.questions.map((question, index) => normalizeSubQuestion(question, `${id}-${index + 1}`));
+    const questions = raw.questions.map((question, index) =>
+      normalizeSubQuestion(question, `${id}-${index + 1}`, relativePath)
+    );
     return {
       ...common,
       kind: "group",
@@ -811,12 +1046,14 @@ function normalizeTopLevelItem(raw, chapter, seed, relativePath) {
   };
 }
 
-function normalizeSubQuestion(raw, fallbackId) {
+function normalizeSubQuestion(raw, fallbackId, relativePath) {
   if (!raw || typeof raw !== "object") {
     throw new Error(`子题 ${fallbackId} 不是对象。`);
   }
+  const id = String(raw.id || fallbackId);
   return {
-    id: String(raw.id || fallbackId),
+    id,
+    uid: `${relativePath}::${id}`,
     prompt: pickText(raw.prompt, raw.question, raw.title),
     options: normalizeOptions(raw.options),
     answerSet: normalizeAnswerSet(raw.answer, raw.answers, raw.correctAnswer, raw.correct),

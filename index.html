@@ -17,7 +17,7 @@
     </header>
 
     <main class="layout">
-      <section class="panel">
+      <section class="panel hidden" id="initPanel">
         <div class="panel__header">
           <h2>题库初始化</h2>
           <span class="badge badge--soft">JSON</span>
@@ -82,25 +82,49 @@
 
         <div id="examContent" class="exam hidden">
           <div class="exam__topbar">
-            <div>
+            <div class="exam__heading">
               <p id="modeLabel" class="eyebrow">章节练习</p>
-              <h2 id="progressLabel">第 1 / 1 题</h2>
+              <div class="exam__progress-row">
+                <h2 id="progressLabel">第 1 / 1 题</h2>
+                <button id="jumpBtn" class="btn btn--ghost btn--small hidden" type="button">跳转</button>
+              </div>
             </div>
             <span id="questionTypeBadge" class="badge">单选题</span>
           </div>
 
           <div id="questionMeta" class="question-meta"></div>
           <div id="questionBody" class="question-body"></div>
-          <div id="resultBox" class="result-box hidden"></div>
-
           <div class="sticky-actions">
             <button id="manualWrongBtn" class="btn btn--ghost" type="button">加入错题库</button>
             <button id="submitBtn" class="btn btn--primary" type="button">提交答案</button>
-            <button id="nextBtn" class="btn btn--secondary hidden" type="button">下一题</button>
           </div>
         </div>
       </section>
     </main>
+  </div>
+
+  <div id="resultModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="resultModalTitle">
+    <div class="modal__backdrop"></div>
+    <div class="modal__card">
+      <h3 id="resultModalTitle" class="modal__title">答题结果</h3>
+      <div id="resultModalBody" class="modal__body"></div>
+      <button id="resultModalConfirmBtn" class="btn btn--primary btn--block" type="button">确认并进入下一题</button>
+    </div>
+  </div>
+
+  <div id="jumpModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="jumpModalTitle">
+    <div class="modal__backdrop"></div>
+    <div class="modal__card">
+      <h3 id="jumpModalTitle" class="modal__title">跳转到指定题目</h3>
+      <div class="modal__body">
+        <p id="jumpHintText">请输入当前章节练习中的题号顺序。</p>
+        <input id="jumpInput" class="jump-input" type="number" min="1" step="1" inputmode="numeric" placeholder="例如：35">
+      </div>
+      <div class="modal__actions">
+        <button id="jumpCancelBtn" class="btn btn--ghost" type="button">取消</button>
+        <button id="jumpConfirmBtn" class="btn btn--primary" type="button">确认跳转</button>
+      </div>
+    </div>
   </div>
 
   <script src="./app.js"></script>
