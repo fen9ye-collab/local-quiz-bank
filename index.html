@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>本地题库练习</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="hero">
+      <div class="hero__text">
+        <p class="eyebrow">免服务器 · 手机优先</p>
+        <h1>本地 HTML 题库</h1>
+        <p class="hero__desc">选择题库目录后即可顺序刷题，支持案例题、共用题干题、单选题、多选题，以及本地错题库循环练习。</p>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="panel">
+        <div class="panel__header">
+          <h2>题库初始化</h2>
+          <span class="badge badge--soft">JSON</span>
+        </div>
+
+        <div class="action-row">
+          <button id="pickDirectoryBtn" class="btn btn--primary" type="button">选择题库目录</button>
+          <button id="reloadBtn" class="btn btn--ghost" type="button">重新读取</button>
+        </div>
+
+        <input id="folderInput" class="hidden-input" type="file" webkitdirectory directory multiple>
+
+        <div class="meta-list">
+          <div class="meta-item">
+            <span class="meta-item__label">当前来源</span>
+            <span id="sourceLabel" class="meta-item__value">未加载题库</span>
+          </div>
+          <div class="meta-item">
+            <span class="meta-item__label">读取状态</span>
+            <span id="statusText" class="meta-item__value">默认题库目录为 questions，首次授权后会自动记住。</span>
+          </div>
+        </div>
+
+        <div class="tips">
+          <p>推荐浏览器：Chrome / Edge 手机版或桌面版。</p>
+          <p>建议把所有 `.json` 题库文件放在同级的 <code>questions</code> 文件夹内。</p>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel__header">
+          <h2>练习设置</h2>
+          <span class="badge" id="bankSummary">0 道题</span>
+        </div>
+
+        <div id="chapterContainer" class="chapter-list empty-state">读取题库后，这里会显示章节选择。</div>
+
+        <div class="stats-grid">
+          <div class="stat-card">
+            <span class="stat-card__label">题目总数</span>
+            <strong id="totalCount">0</strong>
+          </div>
+          <div class="stat-card">
+            <span class="stat-card__label">章节数量</span>
+            <strong id="chapterCount">0</strong>
+          </div>
+          <div class="stat-card">
+            <span class="stat-card__label">错题库</span>
+            <strong id="wrongCount">0</strong>
+          </div>
+        </div>
+
+        <div class="action-stack">
+          <button id="startChapterBtn" class="btn btn--primary btn--block" type="button">按所选章节开始练习</button>
+          <button id="startWrongBtn" class="btn btn--secondary btn--block" type="button">开始错题库练习</button>
+          <button id="clearWrongBtn" class="btn btn--ghost btn--block" type="button">清空当前题库错题</button>
+        </div>
+      </section>
+
+      <section class="panel panel--exam" id="examPanel">
+        <div id="examEmpty" class="empty-state empty-state--large">题库加载完成后，选择章节或进入错题库即可开始练习。</div>
+
+        <div id="examContent" class="exam hidden">
+          <div class="exam__topbar">
+            <div>
+              <p id="modeLabel" class="eyebrow">章节练习</p>
+              <h2 id="progressLabel">第 1 / 1 题</h2>
+            </div>
+            <span id="questionTypeBadge" class="badge">单选题</span>
+          </div>
+
+          <div id="questionMeta" class="question-meta"></div>
+          <div id="questionBody" class="question-body"></div>
+          <div id="resultBox" class="result-box hidden"></div>
+
+          <div class="sticky-actions">
+            <button id="manualWrongBtn" class="btn btn--ghost" type="button">加入错题库</button>
+            <button id="submitBtn" class="btn btn--primary" type="button">提交答案</button>
+            <button id="nextBtn" class="btn btn--secondary hidden" type="button">下一题</button>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="./app.js"></script>
+</body>
+</html>
