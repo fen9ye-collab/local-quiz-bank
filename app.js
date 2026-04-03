@@ -210,7 +210,9 @@ async function loadBankFromDirectoryHandle(handle) {
 }
 
 async function loadBankFromFiles(files, label) {
-  const jsonFiles = files.filter((file) => file.name.toLowerCase().endsWith(".json"));
+  const jsonFiles = files.filter(
+    (file) => file.name.toLowerCase().endsWith(".json") && file.name.toLowerCase() !== "manifest.json"
+  );
   const normalizedFiles = await Promise.all(
     jsonFiles.map(async (file) => ({
       name: file.name,
@@ -930,7 +932,7 @@ async function collectDirectoryJsonFiles(handle, basePath = "") {
     if (entry.kind === "directory") {
       const nested = await collectDirectoryJsonFiles(entry, relativePath);
       list.push(...nested);
-    } else if (name.toLowerCase().endsWith(".json")) {
+    } else if (name.toLowerCase().endsWith(".json") && name.toLowerCase() !== "manifest.json") {
       list.push({ handle: entry, relativePath });
     }
   }
