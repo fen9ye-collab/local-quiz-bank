@@ -26,6 +26,10 @@ document.addEventListener("DOMContentLoaded", async () => {
   updateBankStats();
   renderChapterList();
   renderIdleExam("题库加载完成后，选择章节或进入错题库即可开始练习。");
+  setStatus("正在尝试自动加载题库...");
+  if (await tryLoadHostedManifest()) {
+    return;
+  }
   setStatus("默认题库目录为 questions，首次授权后会自动记住。");
   await tryAutoLoadRememberedDirectory();
 });
@@ -91,6 +95,10 @@ async function onPickDirectory() {
 }
 
 async function onReloadSource() {
+  if (state.source?.type === "manifest") {
+    await tryLoadHostedManifest(true);
+    return;
+  }
   if (state.source?.type === "directory") {
     await loadBankFromDirectoryHandle(state.source.handle);
     return;
@@ -102,6 +110,45 @@ async function onReloadSource() {
   await tryAutoLoadRememberedDirectory();
   if (!state.source) {
     setStatus("还没有可重新读取的题库，请先选择 questions 文件夹。");
+  }
+}
+
+async function tryLoadHostedManifest(force = false) {
+  try {
+    const response = await fetch("./questions/manifest.json", { cache: force ? "no-store" : "default" });
+    if (!response.ok) {
+      return false;
+    }
+
+    const manifest = await response.json();
+    if (!manifest || !Array.isArray(manifest.files) || !manifest.files.length) {
+      return false;
+    }
+
+    setStatus("正在从网站题库清单加载题目...");
+    const files = await Promise.all(
+      manifest.files.map(async (relativePath) => {
+        const fileResponse = await fetch(`./questions/${relativePath}`, { cache: force ? "no-store" : "default" });
+        if (!fileResponse.ok) {
+          throw new Error(`${relativePath} 读取失败`);
+        }
+        return {
+          name: relativePath.split("/").pop(),
+          relativePath,
+          text: await fileResponse.text(),
+        };
+      })
+    );
+
+    state.source = {
+      type: "manifest",
+      label: manifest.label || "questions",
+    };
+
+    await loadNormalizedFiles(files, manifest.label || "网站题库");
+    return true;
+  } catch (_error) {
+    return false;
   }
 }
 
